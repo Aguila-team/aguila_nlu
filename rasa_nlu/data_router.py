@@ -27,6 +27,7 @@ from twisted.internet import reactor
 from twisted.internet.defer import Deferred
 from twisted.logger import jsonFileLogObserver, Logger
 from typing import Text, Dict, Any, Optional, List
+from rasa_nlu.project_manager import ProjectManager
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,12 @@ class DataRouter(object):
         else:
             self.component_builder = ComponentBuilder(use_cache=True)
 
-        self.project_store = self._create_project_store(project_dir)
+        self.project_manager = ProjectManager.create(project_dir,
+                                                     remote_storage,
+                                                     component_builder)
+
+        self.project_store = self.project_manager.get_projects()
+
         self.pool = ProcessPool(self._training_processes)
 
     def __del__(self):
@@ -141,54 +147,6 @@ class DataRouter(object):
                         "(No 'request_log' directory configured)")
             return None
 
-    def _collect_projects(self, project_dir):
-        if project_dir and os.path.isdir(project_dir):
-            projects = os.listdir(project_dir)
-        else:
-            projects = []
-
-        projects.extend(self._list_projects_in_cloud())
-        return projects
-
-    def _create_project_store(self, project_dir):
-        projects = self._collect_projects(project_dir)
-
-        project_store = {}
-
-        for project in projects:
-            project_store[project] = Project(self.component_builder,
-                                             project,
-                                             self.project_dir,
-                                             self.remote_storage)
-
-        if not project_store:
-            default_model = RasaNLUModelConfig.DEFAULT_PROJECT_NAME
-            project_store[default_model] = Project(
-                    project=RasaNLUModelConfig.DEFAULT_PROJECT_NAME,
-                    project_dir=self.project_dir,
-                    remote_storage=self.remote_storage)
-        return project_store
-
-    def _pre_load(self, projects):
-        logger.debug("loading %s", projects)
-        for project in self.project_store:
-            if project in projects:
-                self.project_store[project].load_model()
-
-    def _list_projects_in_cloud(self):
-        try:
-            from rasa_nlu.persistor import get_persistor
-            p = get_persistor(self.remote_storage)
-            if p is not None:
-                return p.list_projects()
-            else:
-                return []
-        except Exception:
-            logger.exception("Failed to list projects. Make sure you have "
-                             "correctly configured your cloud storage "
-                             "settings.")
-            return []
-
     @staticmethod
     def _create_emulator(mode):
         """Create emulator for specified mode.
@@ -214,31 +172,13 @@ class DataRouter(object):
         return self.emulator.normalise_request_json(data)
 
     def parse(self, data):
-        project = data.get("project", RasaNLUModelConfig.DEFAULT_PROJECT_NAME)
+        project = data.get("project")
         model = data.get("model")
 
-        if project not in self.project_store:
-            projects = self._list_projects(self.project_dir)
-
-            cloud_provided_projects = self._list_projects_in_cloud()
-            projects.extend(cloud_provided_projects)
-
-            if project not in projects:
-                raise InvalidProjectError(
-                        "No project found with name '{}'.".format(project))
-            else:
-                try:
-                    self.project_store[project] = Project(
-                            self.component_builder, project,
-                            self.project_dir, self.remote_storage)
-                except Exception as e:
-                    raise InvalidProjectError(
-                            "Unable to load project '{}'. "
-                            "Error: {}".format(project, e))
+        project_instance = self.project_manager.load_project(project)
 
         time = data.get('time')
-        response = self.project_store[project].parse(data['text'], time,
-                                                     model)
+        response = project_instance.parse(data['text'], time, model)
 
         if self.responses:
             self.responses.info('', user_input=response, project=project,
@@ -246,22 +186,18 @@ class DataRouter(object):
 
         return self.format_response(response)
 
-    @staticmethod
-    def _list_projects(path):
-        """List the projects in the path, ignoring hidden directories."""
-        return [os.path.basename(fn)
-                for fn in utils.list_subdirectories(path)]
-
     def parse_training_examples(self, examples, project, model):
         # type: (Optional[List[Message]], Text, Text) -> List[Dict[Text, Text]]
         """Parses a list of training examples to the project interpreter"""
 
+        project_instance = self.project_manager.load_project(project)
+
         predictions = []
         for ex in examples:
             logger.debug("Going to parse: {}".format(ex.as_dict()))
-            response = self.project_store[project].parse(ex.text,
-                                                         None,
-                                                         model)
+            response = project_instance.parse(ex.text,
+                                              None,
+                                              model)
             logger.debug("Received response: {}".format(response))
             predictions.append(response)
 
@@ -282,6 +218,9 @@ class DataRouter(object):
             }
         }
 
+    def _pre_load(self, projects):
+        self.project_manager.pre_load(projects)
+
     def start_train_process(self,
                             data_file,  # type: Text
                             project,  # type: Text
@@ -294,27 +233,26 @@ class DataRouter(object):
         if not project:
             raise InvalidProjectError("Missing project name to train")
 
-        if project in self.project_store:
-            if self.project_store[project].status == 1:
-                raise AlreadyTrainingError
-            else:
-                self.project_store[project].status = 1
-        elif project not in self.project_store:
-            self.project_store[project] = Project(
-                    self.component_builder, project,
-                    self.project_dir, self.remote_storage)
-            self.project_store[project].status = 1
+        project_instance = self.project_manager.load_or_create_project(project)
+
+        if project_instance.status == 1:
+            raise AlreadyTrainingError
+        else:
+            project_instance.status = 1
 
         def training_callback(model_path):
             model_dir = os.path.basename(os.path.normpath(model_path))
-            self.project_store[project].update(model_dir)
+            project_instance.update(model_dir)
             return model_dir
 
         def training_errback(failure):
-            logger.warn(failure)
-            target_project = self.project_store.get(
+            logger.warning(failure)
+            try:
+                target_project = self.project_manager.load_project(
                     failure.value.failed_target_project)
-            if target_project:
+            except InvalidProjectError:
+                pass
+            else:
                 target_project.status = 0
             return failure
 
@@ -341,10 +279,6 @@ class DataRouter(object):
         model = model or None
         file_name = utils.create_temporary_file(data, "_training_data")
         test_data = load_data(file_name)
-
-        if project not in self.project_store:
-            raise InvalidProjectError("Project {} could not "
-                                      "be found".format(project))
 
         preds_json = self.parse_training_examples(test_data.intent_examples,
                                                   project,
@@ -382,12 +316,15 @@ class DataRouter(object):
 
         if project is None:
             raise InvalidProjectError("No project specified".format(project))
-        elif project not in self.project_store:
+
+        if not self.project_manager.project_exists(project):
             raise InvalidProjectError("Project {} could not "
                                       "be found".format(project))
 
+        project_instance = self.project_manager.load_project(project)
+
         try:
-            unloaded_model = self.project_store[project].unload(model)
+            unloaded_model = project_instance.unload(model)
             return unloaded_model
         except KeyError:
             raise InvalidProjectError("Failed to unload model {} "
