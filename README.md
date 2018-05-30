@@ -1,3 +1,6 @@
+AguilaNLU 是一个专注于快速演进和为个人与企业提供开箱即用特性的自然语言理解库；AguilaNLU 是 [RASA NLU](https://github.com/RasaHQ/rasa_nlu) 的一个复刻
+---------------------------------------------------------------------------------------------------
+
 AguilaNLU is a [RASA NLU](https://github.com/RasaHQ/rasa_nlu)-fork focused on rapid evolution and out-of-box feature for developers and companies
 -------------------------------------------------------------------------------------------------------------------------------------------------
 
