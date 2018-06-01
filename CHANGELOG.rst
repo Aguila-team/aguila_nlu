@@ -14,6 +14,7 @@ Added
 - doc link to a community contribution for Rasa NLU in Chinese
 - project related functions such as loading / pre-loading / auto discover are collect to ``ProjectManager`` class
 - add worker interfaces to help down-stream developers more easy to call RASA NLU functions
+- support for component ``count_vectors_featurizer`` use ``tokens`` feature provide by tokenizer
 
 Changed
 -------
