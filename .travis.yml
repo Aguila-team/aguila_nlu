@@ -56,7 +56,8 @@ jobs:
       - pip install -e git://github.com/RasaHQ/sphinx_rtd_theme.git#egg=sphinx_rtd_theme
       - pip install -e .
     script:
-      - mkdir -p docs/_build/html
+      - mkdir -p docs/_build/html  # make sure build dir exits
+      - touch docs/_build/html/.nojekyll  # Bypassing Jekyll on GitHub Pages, prevent files or directories that start with underscores be considered as special resources
       - sphinx-versioning build docs docs/_build/html
     deploy:
       provider: pages
