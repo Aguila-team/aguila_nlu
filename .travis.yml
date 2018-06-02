@@ -56,7 +56,6 @@ jobs:
       - pip install -e git://github.com/RasaHQ/sphinx_rtd_theme.git#egg=sphinx_rtd_theme
       - pip install -e .
     script:
-      - sphinx-versioning push docs docs .
       - mkdir -p docs/_build/html
       - sphinx-versioning build docs docs/_build/html
     deploy:
