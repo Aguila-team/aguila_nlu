@@ -28,6 +28,7 @@ env:
 #  - mkdir $HOME/tmp
 #  - export TMPDIR=$HOME/tmp
 #script:
+script: skip
 #  - py.test --pep8 -m pep8
 #  - py.test tests/base --cov rasa_nlu -v --cov-append
 #  - py.test tests/training --cov rasa_nlu -v --cov-append
