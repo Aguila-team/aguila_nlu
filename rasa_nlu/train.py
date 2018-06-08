@@ -5,6 +5,7 @@ from __future__ import unicode_literals
 
 import argparse
 import logging
+import traceback
 
 import typing
 from typing import Optional, Any
@@ -120,7 +121,10 @@ def do_train_in_worker(cfg,  # type: RasaNLUModelConfig
                                         component_builder)
         return persisted_path
     except BaseException as e:
-        logger.exception("Failed to train project '{}'.".format(project))
+        logger.exception(
+            "Failed to train project '{}'.\n{}".format(project,
+                                                       traceback.format_exc())
+        )
         raise TrainingException(project, e)
 
 
