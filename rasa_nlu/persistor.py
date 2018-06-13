@@ -11,6 +11,7 @@ import tarfile
 
 import boto3
 import botocore
+from botocore.client import Config
 from builtins import object
 from typing import Optional, Tuple, List, Text
 
@@ -26,8 +27,17 @@ def get_persistor(name):
     Currently, `aws`, `gcs` and `azure` are supported"""
 
     if name == 'aws':
+        s3_addressing_style = os.environ.get("S3_ADDRESSING_STYLE")
+        config = {}
+        if s3_addressing_style is not None:
+            config = {
+                'addressing_style': s3_addressing_style
+            }
+
         return AWSPersistor(os.environ.get("BUCKET_NAME"),
-                            os.environ.get("AWS_ENDPOINT_URL"))
+                            os.environ.get("AWS_ENDPOINT_URL"),
+                            os.environ.get("S3_REGION_NAME"),
+                            config=config)
     if name == 'gcs':
         return GCSPersistor(os.environ.get("BUCKET_NAME"))
 
@@ -141,10 +151,16 @@ class AWSPersistor(Persistor):
 
     Fetches them when needed, instead of storing them on the local disk."""
 
-    def __init__(self, bucket_name, endpoint_url=None):
+    def __init__(self, bucket_name, endpoint_url=None, region_name=None, config=None):
         # type: (Text, Optional[Text]) -> None
+        if config is None:  # default config should be empty dictionary
+            config = {}
+
         super(AWSPersistor, self).__init__()
-        self.s3 = boto3.resource('s3', endpoint_url=endpoint_url)
+        self.s3 = boto3.resource('s3',
+                                 endpoint_url=endpoint_url,
+                                 region_name=region_name,
+                                 config=Config(s3=config))
         self._ensure_bucket_exists(bucket_name)
         self.bucket_name = bucket_name
         self.bucket = self.s3.Bucket(bucket_name)
@@ -174,7 +190,7 @@ class AWSPersistor(Persistor):
 
     def _ensure_bucket_exists(self, bucket_name):
         bucket_config = {
-            'LocationConstraint': boto3.DEFAULT_SESSION.region_name}
+            'LocationConstraint': boto3.DEFAULT_SESSION.region_name or ""}
         try:
             self.s3.create_bucket(Bucket=bucket_name,
                                   CreateBucketConfiguration=bucket_config)
