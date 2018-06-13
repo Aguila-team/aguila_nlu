@@ -94,7 +94,11 @@ setup(
     },
 )
 
-print("\nWelcome to Rasa NLU!")
-print("If any questions please visit documentation "
-      "page https://nlu.rasa.com")
-print("or join community chat on https://gitter.im/RasaHQ/rasa_nlu")
+# TODO: disable follow print statement,
+# it will cause devpi package wrong name of metadata,
+# why this will cause bug the real reason is unknown.
+# ===
+# print("\nWelcome to Rasa NLU!")
+# print("If any questions please visit documentation "
+#       "page https://nlu.rasa.com")
+# print("or join community chat on https://gitter.im/RasaHQ/rasa_nlu")
